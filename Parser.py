@@ -39,7 +39,7 @@ def parse_dataset(dataset_name, st, depth):
     parser = LogParser(log_format, indir=input_dir, outdir=output_dir, depth=depth, st=st, rex=regex, maxChild=120)
     parser.parse(log_file)
 
-def split_dataset(dataset_name):
+def split_dataset(dataset_name, data_seed):
     logs = pd.read_csv(f"{root_path}/Data/{dataset_name}/{dataset_name}.log_structured.csv")
     labels = pd.read_csv(f"{root_path}/Data/{dataset_name}/anomaly_label_{dataset_name}.csv")
 
@@ -65,12 +65,15 @@ def split_dataset(dataset_name):
 
     boot_ids = train_df["machine"].unique()
     train_ids, val_ids = train_test_split(
-        boot_ids, test_size=0.2, random_state=42
+        boot_ids, test_size=0.2, random_state=data_seed
     )
 
-    train_df = train_df[train_df["machine"].isin(train_ids)]
-    val_df   = train_df[train_df["machine"].isin(val_ids)]
+    print(f"Train IDs: {train_ids}")
+    print(f"Val IDs: {val_ids}")
 
-    train_df.to_csv(f"{root_path}/Data/{dataset_name}/{dataset_name}_deeplog_train.csv", index=False)
-    val_df.to_csv(f"{root_path}/Data/{dataset_name}/{dataset_name}_deeplog_val.csv", index=False)
-    test_df.to_csv(f"{root_path}/Data/{dataset_name}/{dataset_name}_deeplog_test.csv",  index=False)
+    val_df   = train_df[train_df["machine"].isin(val_ids)]
+    train_df = train_df[train_df["machine"].isin(train_ids)]
+
+    train_df.to_csv(f"{root_path}/Data/{dataset_name}/Temp/{dataset_name}_deeplog_train.csv", index=False)
+    val_df.to_csv(f"{root_path}/Data/{dataset_name}/Temp/{dataset_name}_deeplog_val.csv", index=False)
+    test_df.to_csv(f"{root_path}/Data/{dataset_name}/Temp/{dataset_name}_deeplog_test.csv",  index=False)

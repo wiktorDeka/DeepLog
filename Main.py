@@ -11,38 +11,44 @@ import torch.nn as nn
 
 root_path = r'/home/ubuntu/bsc/BootDet/DeepLog-master'
 
-WINDOW  = 10          # długość kontekstu (h w paperze)
-TIMEOUT = float('inf')  # nie obcinamy po czasie
-pre = Preprocessor(length=WINDOW, timeout=TIMEOUT)
+def run_experiment(
+        dataset_name, 
+        hpo,
+        window,
+        hidden_size,
+        batch_size,
+        lr,
+        top_k
+    ):
 
-def run_experiment(dataset_name, hpo):
-    _, _, _, mapping_global = pre.csv(f"{root_path}/Data/{dataset_name}/{dataset_name}_deeplog_test.csv")
+    pre = Preprocessor(length=window, timeout=float('inf'))
+    _, _, _, mapping_global = pre.csv(f"{root_path}/Data/{dataset_name}/Temp/{dataset_name}_deeplog_test.csv")
 
     # === TRAIN ===
-    ctx_tr, ev_tr, labels_tr, mapping_tr = pre.csv(f"{root_path}/Data/{dataset_name}/{dataset_name}_deeplog_train.csv", mapping=mapping_global)
+    ctx_tr, ev_tr, labels_tr, mapping_tr = pre.csv(f"{root_path}/Data/{dataset_name}/Temp/{dataset_name}_deeplog_train.csv", mapping=mapping_global)
     # === TEST  ===
-    ctx_te, ev_te, labels_te, mapping_te = pre.csv(f"{root_path}/Data/{dataset_name}/{dataset_name}_deeplog_test.csv", mapping=mapping_global)
+    ctx_te, ev_te, labels_te, mapping_te = pre.csv(f"{root_path}/Data/{dataset_name}/Temp/{dataset_name}_deeplog_test.csv", mapping=mapping_global)
     # === VAL   ===
-    ctx_val, ev_val, labels_val, mapping_val = pre.csv(f"{root_path}/Data/{dataset_name}/{dataset_name}_deeplog_val.csv", mapping=mapping_global)
+    ctx_val, ev_val, labels_val, mapping_val = pre.csv(f"{root_path}/Data/{dataset_name}/Temp/{dataset_name}_deeplog_val.csv", mapping=mapping_global)
     n_events = len(mapping_tr)
 
 
     train_ds = TensorDataset(ctx_tr, ev_tr)
     val_ds   = TensorDataset(ctx_val, ev_val)
 
-    train_loader = DataLoader(train_ds, batch_size=64, shuffle=True)
-    val_loader   = DataLoader(val_ds,   batch_size=64, shuffle=False)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+    val_loader   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False)
 
     deeplog = DeepLog(
         input_size  = n_events,
-        hidden_size = 64,
+        hidden_size = hidden_size,
         output_size = n_events,
     ).to('cuda')
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(deeplog.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(deeplog.parameters(), lr=lr)
 
-    EPOCHS = 100
+    EPOCHS = 150
     PATIENCE = 3
     DELTA    = 1e-3
 
@@ -103,22 +109,28 @@ def run_experiment(dataset_name, hpo):
                 print("Early stopping triggered.")
                 break
 
-    if hpo == False:
+    if hpo == True:
         X_p = ctx_val
         y_p = ev_val
     else:
         X_p = ctx_te
         y_p = ev_te
 
+    deeplog.to('cpu')
     y_pred_test, conf = deeplog.predict(
         X = X_p,
         y = y_p,
-        k = 5
+        k = top_k
     )
 
-    top1_te = (y_pred_test[:, 0] == ev_te)
+    if hpo == True:
+        top1_te = (y_pred_test[:, 0] == ev_val)
+        topk_te = (y_pred_test == ev_val.unsqueeze(1)).any(dim=1)
+    else:
+        top1_te = (y_pred_test[:, 0] == ev_te)
+        topk_te = (y_pred_test == ev_te.unsqueeze(1)).any(dim=1)
+        
     top1_acc = top1_te.float().mean().item()
-    topk_te = (y_pred_test == ev_te.unsqueeze(1)).any(dim=1)
     topk_acc = topk_te.float().mean().item()
 
-    return top1_acc, topk_acc
+    return top1_acc, top1_te, topk_acc, topk_te, train_losses, val_losses
